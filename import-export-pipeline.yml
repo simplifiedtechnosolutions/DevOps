@@ -1,0 +1,74 @@
+---
+
+jobs:
+  - name: export
+    plan:
+      - get: test-git-repo
+        resource: test-git-repo
+        trigger: true      
+                      
+      - task: export
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: docker.rtfx.testsc.com/alpine
+              tag: 3.12.1
+          inputs:
+            - name: test-git-repo
+            
+          outputs:
+            - name: test-git-repo-exported
+          run:
+            path: sh
+            args:
+              - test-git-repo/testConnectors/Static/concourse/scripts/export.sh
+        params:
+          apiusername: RESTAPIUSER
+          apiusernamepwd: ((test-integration))
+      - put: test-git-repo            
+        params:
+          repository: test-git-repo-exported    
+          
+      - task: import
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: docker.rtfx.testsc.com/alpine
+              tag: 3.12.1
+          inputs:
+            - name: test-git-repo
+            
+          outputs:
+            - name: test-codebase
+          run:
+            path: sh
+            args:
+              - test-git-repo/testConnectors/Static/concourse/scripts/import.sh
+        params:
+          apiusername: RESTAPIUSER
+          apiusernamepwd: ((test-integration))
+          
+resource_types:
+  - name: artifactory
+    type: docker-image
+    source:
+      repository: docker.rtfx.testsc.com/pivotalservices/artifactory-resource
+
+resources:
+  - name: test-git-repo
+    icon: github
+    type: git
+    source:
+      branch: ((project.git.branch))
+      private_key: ((github-private-key))
+      uri: ((project.git.uri))
+      
+
+  
+
+
+  
