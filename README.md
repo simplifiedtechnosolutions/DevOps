@@ -11,6 +11,6 @@ Similarly, we can use rest api calls to export data/configurations from source s
 
 Sample export.sh and import.sh files are atttached.
 
-Pipeline expects some variables i.e. ((project.git.uri)), ((github-private-key)) etc. which can be replaced with actual values.
-We can externalized other dynamic variables and can use env. specific  files craeted(env_var.yml) to populate these variables values from env_var.yml file.
+Pipeline expects some placeholder variables i.e. ((project.git.uri)), ((github-private-key)) etc. which can be replaced with actual values.
+We can externalize other dynamic variables and respective values maintained in env. specific files i.e. env_var.yml to populate these variables values from env_var.yml file for respective environment.
 Example : >> fly -t cloud set-pipeline -p test-new-plugin-pipeline -c testpipeline.yml --load-vars-from env_var.yml
