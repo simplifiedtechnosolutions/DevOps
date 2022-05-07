@@ -1,0 +1,218 @@
+---
+jobs:
+  - name: build
+    plan:
+      - get: myproject-codebase
+        resource: myproject-git-repo
+        trigger: true
+      - get: version
+        resource: version
+        params:
+          bump: patch
+      - task: test-and-build
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: docker.rtfx.myprojectsc.com/maven
+              tag: jdk-tag
+          inputs:
+            - name: myproject-codebase
+            - name: version
+          outputs:
+            - name: build-artifacts
+              path: myproject-codebase/((project.moduleName))/target
+          caches:
+            - path: myproject-codebase/.m2/repository
+          run:
+            path: bash
+            args:
+              - myproject-codebase/concourse/common-scripts/test_and_build.sh
+        params:
+          MODULE_NAME: ((project.moduleName))
+      - put: rtfx-test-snapshot
+        params:
+          file: build-artifacts/((project.artifactId))-*.jar
+      - put: version
+        params:
+          file: version/number
+      - put: myproject-git-repo
+        params:
+          repository: myproject-codebase
+          tag: version/number
+          only_tag: true
+          tag_prefix: ((project.artifactId))-
+
+  - name: deploy-dev
+    plan:
+      - get: myproject-codebase
+        resource: myproject-git-repo
+      - get: version
+        resource: version
+        trigger: true
+        passed:
+          - build
+      - task: gather-artifacts
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: docker.rtfx.myprojectsc.com/busybox
+              tag: "testtag"
+          inputs:
+            - name: myproject-codebase
+            - name: version
+          outputs:
+            - name: artifacts
+          run:
+            path: sh
+            args:
+              - myproject-codebase/concourse/common-scripts/gather_artifacts.sh
+        params:
+          PCF_SPACE: dev
+          PCF_PREFIX: ((project.pcfPrefix))
+          MODULE_NAME: ((project.moduleName))
+          ARTIFACT_ID: ((project.artifactId))
+      - put: pcf-dev
+        params:
+          manifest: artifacts/manifest.yml
+
+  - name: deploy-test
+    plan:
+      - get: myproject-codebase
+        resource: myproject-git-repo
+      - get: version
+        resource: version
+        passed:
+          - deploy-dev
+      - task: gather-artifacts
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: docker.rtfx.myprojectsc.com/busybox
+              tag: "testtag"
+          inputs:
+            - name: myproject-codebase
+            - name: version
+          outputs:
+            - name: artifacts
+          run:
+            path: sh
+            args:
+              - myproject-codebase/concourse/common-scripts/gather_artifacts.sh
+        params:
+          PCF_SPACE: test
+          PCF_PREFIX: ((project.pcfPrefix))
+          MODULE_NAME: ((project.moduleName))
+          ARTIFACT_ID: ((project.artifactId))
+      - put: pcf-test
+        params:
+          manifest: artifacts/manifest.yml
+
+  - name: promote-to-release
+    plan:
+      - get: myproject-codebase
+        resource: myproject-git-repo
+      - get: version
+        resource: version
+        passed:
+          - deploy-test
+      - task: prepare-release
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: docker.rtfx.myprojectsc.com/busybox
+              tag: "testtag"
+          inputs:
+            - name: myproject-codebase
+            - name: version
+          outputs:
+            - name: artifacts
+          run:
+            path: sh
+            args:
+              - myproject-codebase/concourse/common-scripts/prepare_release.sh
+        params:
+          MODULE_NAME: ((project.moduleName))
+          ARTIFACT_ID: ((project.artifactId))
+      - put: rtfx-test-release
+        params:
+          file: artifacts/((project.artifactId))-*.jar
+
+
+resource_types:
+  - name: artifactory
+    type: docker-image
+    source:
+      repository: docker.rtfx.myprojectsc.com/pivotalservices/artifactory-resource
+
+resources:
+  - name: myproject-git-repo
+    icon: github
+    type: git
+    source:
+      branch: ((project.git.branch))
+      private_key: ((github-private-key))
+      uri: ((project.git.uri))
+      paths: ((project.git.watch))
+
+  - name: version
+    icon: format-list-numbered
+    type: semver
+    source:
+      driver: git
+      uri: ((project.git.uri))
+      branch: ((project.git.branch))
+      file: ((project.versionFile))
+      private_key:
+            ((github-private-key))
+
+  - name: rtfx-test-snapshot
+    icon: package-variant-closed
+    type: artifactory
+    source:
+      endpoint: ((project.artifactory.endpoint))
+      repository: /((project.artifactory.repository.snapshot))/myproject/((project.artifactory.folder))
+      regex: "((project.artifactId))-(?<version>.*).jar"
+      username: service-account
+      password: ((artifactory-token))
+      skip_ssl_verification: true
+
+  - name: rtfx-test-release
+    icon: package-variant-closed
+    type: artifactory
+    source:
+      endpoint: ((project.artifactory.endpoint))
+      repository: /((project.artifactory.repository.release))/myproject/((project.artifactory.folder))
+      regex: "((project.artifactId))-(?<version>.*).jar"
+      username: service-account
+      password: ((artifactory-token))
+      skip_ssl_verification: true
+
+  - name: pcf-dev
+    type: cf
+    source:
+      api: ((cf-api))
+      username: ((cf-username))
+      password: ((cf-password))
+      organization: corp
+      space: dev
+      skip_cert_check: true
+
+  - name: pcf-test
+    type: cf
+    source:
+      api: ((cf-api))
+      username: ((cf-username))
+      password: ((cf-password))
+      organization: corp
+      space: test
+      skip_cert_check: true
+
+
